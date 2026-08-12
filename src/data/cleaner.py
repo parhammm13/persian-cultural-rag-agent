@@ -1,8 +1,13 @@
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict, List
 
+
+# ============================================================
+# LOGGING
+# ============================================================
 
 logging.basicConfig(
     level=logging.INFO,
@@ -11,26 +16,120 @@ logging.basicConfig(
 )
 
 
+# ============================================================
+# CLEANER
+# ============================================================
+
 class PageDataCleaner:
-    def __init__(self, base_dir: str | Path, output_dir: str | Path):
+    def __init__(
+        self,
+        base_dir: str | Path,
+        output_dir: str | Path,
+    ):
         self.base_dir = Path(base_dir)
         self.output_dir = Path(output_dir)
 
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.output_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
-        self.output_file = self.output_dir / "cleaned_pages_data.json"
+        # فقط خروجی نهایی
+        self.output_file = (
+            self.output_dir
+            / "cleaned_data.json"
+        )
 
-    def process_data(self) -> List[Dict[str, Any]]:
+    # ========================================================
+    # NORMALIZE TITLE
+    # ========================================================
+
+    @staticmethod
+    def normalize_title(title: Any) -> str:
         """
-        Read page folders, combine metadata/content/text,
-        remove duplicate pages, and save normalized records.
+        Normalize page titles.
+
+        Examples:
+            "الگو : مسجد" -> "الگو:مسجد"
+            "فهرست   آثار" -> "فهرست آثار"
         """
 
-        logging.info("Starting data cleaning process...")
+        if title is None:
+            return ""
+
+        title = str(title).strip()
+
+        # Normalize spaces around colon
+        title = re.sub(
+            r"\s*:\s*",
+            ":",
+            title,
+        )
+
+        # Remove repeated whitespace
+        title = re.sub(
+            r"\s+",
+            " ",
+            title,
+        )
+
+        return title
+
+    # ========================================================
+    # REMOVE RULES
+    # ========================================================
+
+    @classmethod
+    def should_remove(cls, title: Any) -> bool:
+        """
+        Remove:
+        - Template pages
+        - List pages
+        """
+
+        title = cls.normalize_title(title)
+
+        # Template pages
+        if title.startswith("الگو:"):
+            return True
+
+        # List pages
+        if title == "فهرست":
+            return True
+
+        if title.startswith("فهرست "):
+            return True
+
+        if title.startswith("فهرست‌"):
+            return True
+
+        return False
+
+    # ========================================================
+    # PROCESS DATA
+    # ========================================================
+
+    def process_data(
+        self,
+    ) -> List[Dict[str, Any]]:
+        """
+        Pipeline:
+
+        1. Read page folders
+        2. Combine metadata/content/text
+        3. Remove duplicate pages
+        4. Remove template/list pages
+        5. Save final cleaned_data.json
+        """
+
+        logging.info(
+            "Starting data cleaning process..."
+        )
 
         if not self.base_dir.exists():
             raise FileNotFoundError(
-                f"Input directory not found: {self.base_dir}"
+                f"Input directory not found: "
+                f"{self.base_dir}"
             )
 
         seen_ids = set()
@@ -39,60 +138,129 @@ class PageDataCleaner:
         duplicate_count = 0
         invalid_count = 0
         error_count = 0
+        removed_count = 0
 
-        for folder in sorted(self.base_dir.iterdir()):
+        removed_titles = set()
+
+        # ====================================================
+        # READ PAGE FOLDERS
+        # ====================================================
+
+        for folder in sorted(
+            self.base_dir.iterdir()
+        ):
             if not folder.is_dir():
                 continue
 
-            metadata_path = folder / "page_metadata.json"
-            content_path = folder / "page_content.json"
-            text_path = folder / "page_text.txt"
+            metadata_path = (
+                folder
+                / "page_metadata.json"
+            )
 
-            if not metadata_path.exists() or not content_path.exists():
+            content_path = (
+                folder
+                / "page_content.json"
+            )
+
+            text_path = (
+                folder
+                / "page_text.txt"
+            )
+
+            # ------------------------------------------------
+            # Required files
+            # ------------------------------------------------
+
+            if (
+                not metadata_path.exists()
+                or not content_path.exists()
+            ):
                 logging.warning(
-                    f"Required files missing in folder: {folder.name}"
+                    "Required files missing in folder: "
+                    f"{folder.name}"
                 )
+
                 continue
 
             try:
-                # Read metadata
-                with metadata_path.open("r", encoding="utf-8") as f:
+                # ============================================
+                # READ METADATA
+                # ============================================
+
+                with metadata_path.open(
+                    "r",
+                    encoding="utf-8",
+                ) as f:
                     metadata = json.load(f)
 
-                # Read structured page content
-                with content_path.open("r", encoding="utf-8") as f:
+                # ============================================
+                # READ STRUCTURED CONTENT
+                # ============================================
+
+                with content_path.open(
+                    "r",
+                    encoding="utf-8",
+                ) as f:
                     page_content = json.load(f)
 
-                # Read full flattened page text
+                # ============================================
+                # READ PAGE TEXT
+                # ============================================
+
                 page_text = ""
 
                 if text_path.exists():
-                    page_text = text_path.read_text(
-                        encoding="utf-8"
-                    ).strip()
+                    page_text = (
+                        text_path.read_text(
+                            encoding="utf-8"
+                        )
+                        .strip()
+                    )
 
-                # Extract page ID
-                page_id = str(metadata.get("Id", "")).strip()
+                # ============================================
+                # PAGE ID
+                # ============================================
+
+                page_id = str(
+                    metadata.get(
+                        "Id",
+                        "",
+                    )
+                ).strip()
 
                 if not page_id:
                     invalid_count += 1
 
                     logging.warning(
-                        f"Missing page ID in folder: {folder.name}"
+                        "Missing page ID in folder: "
+                        f"{folder.name}"
                     )
+
                     continue
 
-                # Deduplication
+                # ============================================
+                # DEDUPLICATION
+                # ============================================
+
                 if page_id in seen_ids:
                     duplicate_count += 1
                     continue
 
                 seen_ids.add(page_id)
 
-                # Extract metadata fields
-                source_row = metadata.get("source_row", {})
+                # ============================================
+                # METADATA
+                # ============================================
 
-                if not isinstance(source_row, dict):
+                source_row = metadata.get(
+                    "source_row",
+                    {},
+                )
+
+                if not isinstance(
+                    source_row,
+                    dict,
+                ):
                     source_row = {}
 
                 node_type = source_row.get(
@@ -100,21 +268,50 @@ class PageDataCleaner:
                     "page",
                 )
 
-                # Extract top-level page information
-                page_url = page_content.get("page_url")
-                title = page_content.get("title")
+                # ============================================
+                # PAGE INFORMATION
+                # ============================================
 
-                # Keep structured content,
-                # but remove fields already stored elsewhere.
+                page_url = page_content.get(
+                    "page_url"
+                )
+
+                title = page_content.get(
+                    "title"
+                )
+
+                # ============================================
+                # REMOVE TEMPLATE / LIST PAGE
+                # ============================================
+
+                if self.should_remove(title):
+                    removed_count += 1
+
+                    if title:
+                        removed_titles.add(
+                            str(title).strip()
+                        )
+
+                    continue
+
+                # ============================================
+                # STRUCTURED PAGE CONTENT
+                # ============================================
+
                 cleaned_page_content = {
                     key: value
-                    for key, value in page_content.items()
+                    for key, value
+                    in page_content.items()
                     if key not in {
                         "page_url",
                         "title",
                         "full_text",
                     }
                 }
+
+                # ============================================
+                # FINAL RECORD
+                # ============================================
 
                 record = {
                     "unique_id": f"page_{page_id}",
@@ -126,32 +323,73 @@ class PageDataCleaner:
                     "page_content": cleaned_page_content,
                 }
 
-                cleaned_pages.append(record)
+                cleaned_pages.append(
+                    record
+                )
 
             except Exception:
                 error_count += 1
 
                 logging.exception(
-                    f"Error processing folder: {folder.name}"
+                    "Error processing folder: "
+                    f"{folder.name}"
                 )
 
-        logging.info(
-            f"Duplicate pages removed: {duplicate_count}"
+        # ====================================================
+        # REPORT
+        # ====================================================
+
+        print()
+        print("=" * 70)
+        print("CLEANING REPORT")
+        print("=" * 70)
+
+        print(
+            "Duplicate pages removed:",
+            duplicate_count,
         )
 
-        logging.info(
-            f"Invalid pages skipped: {invalid_count}"
+        print(
+            "Invalid pages skipped:",
+            invalid_count,
         )
 
-        logging.info(
-            f"Processing errors: {error_count}"
+        print(
+            "Template/List pages removed:",
+            removed_count,
         )
 
-        logging.info(
-            f"Total cleaned pages: {len(cleaned_pages)}"
+        print(
+            "Processing errors:",
+            error_count,
         )
 
-        # Save output
+        print(
+            "Final pages:",
+            len(cleaned_pages),
+        )
+
+        print()
+
+        print("Removed titles:")
+
+        if removed_titles:
+            for title in sorted(
+                removed_titles
+            ):
+                print(title)
+        else:
+            print(
+                "No template/list pages found."
+            )
+
+        print("=" * 70)
+        print()
+
+        # ====================================================
+        # SAVE FINAL JSON
+        # ====================================================
+
         with self.output_file.open(
             "w",
             encoding="utf-8",
@@ -164,14 +402,19 @@ class PageDataCleaner:
             )
 
         logging.info(
-            f"Cleaned file saved to: "
+            "Final cleaned file saved to: "
             f"{self.output_file.resolve()}"
         )
 
         return cleaned_pages
 
 
+# ============================================================
+# RUN
+# ============================================================
+
 if __name__ == "__main__":
+
     BASE_DIR = Path(
         r"D:\Summer code\portfolio project"
         r"\persian-cultural-rag-agent"
@@ -189,4 +432,4 @@ if __name__ == "__main__":
         output_dir=OUTPUT_DIR,
     )
 
-    cleaned_data = cleaner.process_data()   
+    cleaned_data = cleaner.process_data()
