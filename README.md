@@ -1,14 +1,16 @@
-"# persian-cultural-rag-agent" 
+# persian-cultural-rag-agent
 
 
 a basic for making a RAG system step by step 
 
 
-# Problem Statement
+## Problem Statement
 
 برای اینکه گردشگران بتوانند به اطلاعات دقیق تری از بناهای تاریخی ایران 
 دستری داشته باشند و با ان اشنا شوند
 
+
+## architecture
 ```mermaid
 graph TD
     subgraph Ingestion Pipeline [بخش آماده‌سازی داده]
@@ -24,3 +26,4 @@ graph TD
         E --> H
         H --> I[Top-K Context Chunks]
     end
+
