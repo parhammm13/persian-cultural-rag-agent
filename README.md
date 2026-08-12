@@ -26,7 +26,7 @@ graph TD
         E --> H
         H --> I[Top-K Context Chunks]
     end
-
+```
 
 
 ## schema
