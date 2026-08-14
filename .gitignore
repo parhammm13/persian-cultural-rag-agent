@@ -1,2 +1,5 @@
 .env
 [dD]ata/*
+
+__pycache__/
+*.pyc
