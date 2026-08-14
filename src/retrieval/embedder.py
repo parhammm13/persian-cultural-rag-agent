@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import hashlib
 import json
@@ -22,10 +24,10 @@ from tqdm import tqdm
 JINA_API_URL = "https://api.jina.ai/v1/embeddings"
 MODEL_NAME = "jina-embeddings-v5-text-small"
 
-# For document chunks in a RAG retrieval pipeline.
-# When you later embed the user's search query, use:
-# task="retrieval.query"
-JINA_TASK = "retrieval.passage"
+# Documents and queries use the same embedding model,
+# but different retrieval tasks.
+DOCUMENT_TASK = "retrieval.passage"
+QUERY_TASK = "retrieval.query"
 
 EXPECTED_DIMENSION = 1024
 DEFAULT_BATCH_SIZE = 32
@@ -62,10 +64,10 @@ def load_jina_api_key() -> Tuple[str, Optional[Path]]:
         persian-cultural-rag-agent/
         ├── .env
         └── src/
-            └── data/
+            └── retrieval/
                 └── embedder.py
 
-    This means the .env file does not need to be copied into src/data.
+    This means the .env file does not need to be copied into src/retrieval.
     """
 
     script_dir = Path(__file__).resolve().parent
@@ -344,11 +346,17 @@ def prepare_children(
 # ============================================================
 
 def build_embedding_config() -> Dict[str, Any]:
+    """
+    Configuration for DOCUMENT embeddings stored in embeddings.npy.
+
+    Query embeddings are generated at retrieval time with QUERY_TASK
+    and are intentionally not part of this document embedding manifest.
+    """
     return {
         "provider": "jina-ai",
         "api_url": JINA_API_URL,
         "model_name": MODEL_NAME,
-        "task": JINA_TASK,
+        "task": DOCUMENT_TASK,
         "dimension": EXPECTED_DIMENSION,
         "embedding_type": "float",
         "normalize_embeddings": True,
@@ -621,17 +629,33 @@ def request_jina_embeddings(
     api_key: str,
     timeout: int,
     max_retries: int,
+    task: str,
 ) -> np.ndarray:
     """
     Send one synchronous batch to Jina Embeddings API.
 
-    Documents use retrieval.passage.
-    Later, user search queries should use retrieval.query.
+    Use:
+        DOCUMENT_TASK for indexed child chunks.
+        QUERY_TASK for user search queries.
     """
+
+    if task not in {
+        DOCUMENT_TASK,
+        QUERY_TASK,
+    }:
+        raise ValueError(
+            "Unsupported embedding task: "
+            f"{task}"
+        )
+
+    if not texts:
+        raise ValueError(
+            "texts must contain at least one item."
+        )
 
     payload = {
         "model": MODEL_NAME,
-        "task": JINA_TASK,
+        "task": task,
         "dimensions": EXPECTED_DIMENSION,
         "input": texts,
         "embedding_type": "float",
@@ -776,6 +800,54 @@ def request_jina_embeddings(
     ) from last_error
 
 
+def embed_query(
+    query: str,
+    api_key: str,
+    timeout: int = DEFAULT_TIMEOUT,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+) -> np.ndarray:
+    """
+    Embed one user search query for dense retrieval.
+
+    Returns:
+        A normalized float32 vector with shape (1024,).
+    """
+
+    if not isinstance(query, str):
+        raise TypeError(
+            "Query must be a string."
+        )
+
+    query = query.strip()
+
+    if not query:
+        raise ValueError(
+            "Query must not be empty."
+        )
+
+    if timeout <= 0:
+        raise ValueError(
+            "timeout must be > 0."
+        )
+
+    if max_retries < 0:
+        raise ValueError(
+            "max_retries must be >= 0."
+        )
+
+    vectors = request_jina_embeddings(
+        texts=[query],
+        api_key=api_key,
+        timeout=timeout,
+        max_retries=max_retries,
+        task=QUERY_TASK,
+    )
+
+    # request_jina_embeddings returns shape (N, 1024).
+    # For one query we want a single vector: shape (1024,).
+    return vectors[0]
+
+
 # ============================================================
 # Embedding pipeline
 # ============================================================
@@ -846,7 +918,7 @@ def create_embeddings(
     )
     logger.info(
         "Task            : %s",
-        JINA_TASK,
+        DOCUMENT_TASK,
     )
     logger.info(
         "Children        : %s",
@@ -1008,6 +1080,7 @@ def create_embeddings(
                         api_key=api_key,
                         timeout=timeout,
                         max_retries=max_retries,
+                        task=DOCUMENT_TASK,
                     )
                 )
 
