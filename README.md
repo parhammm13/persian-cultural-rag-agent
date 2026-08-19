@@ -1,90 +1,129 @@
 # persian-cultural-rag-agent
 
-
-a basic for making a RAG system step by step 
-
+A step-by-step implementation of a RAG system for Persian cultural and historical content.
 
 ## Problem Statement
 
-برای اینکه گردشگران بتوانند به اطلاعات دقیق تری از بناهای تاریخی ایران 
-دستری داشته باشند و با ان اشنا شوند
+هدف پروژه ساخت یک سیستم RAG برای دسترسی ساده‌تر و دقیق‌تر به اطلاعات مربوط به بناها و محتوای تاریخی و فرهنگی ایران است.
 
+## Architecture
 
-## architecture
 ```mermaid
 graph TD
-    subgraph Ingestion Pipeline [بخش آماده‌سازی داده]
-        A[Raw Data] --> B[Cleaning & Schema Validation]
-        B --> C[Chunking]
-        C --> D[Embedding Model]
-        D --> E[(Vector DB / Qdrant)]
-    end
+    A[Raw Data] --> B[Cleaning]
+    B --> C[Semantic Chunking]
+    C --> D[Embedding]
+    D --> E[(Qdrant)]
 
-    subgraph Retrieval Pipeline [بخش جستجو]
-        F[User Query] --> G[Embed Query]
-        G --> H[Vector Search]
-        E --> H
-        H --> I[Top-K Context Chunks]
-    end
+    F[User Query] --> G[Query Embedding]
+    G --> H[Dense Retrieval]
+    E --> H
+    H --> I[Top-K Chunks]
+    I --> J[Context Builder]
 ```
 
+## Chunking
 
-## schema
+The data is first divided into semantic units such as leads and sections.
 
+Large units are split using a parent-child strategy, while smaller units are preserved.
+
+```text
+PAGE
+ │
+ └── Semantic Unit
+        │
+        ▼
+      Parent
+        │
+        ▼
+      Children
+```
+
+Current configuration:
+
+```text
+child_target_tokens  = 400
+child_max_tokens     = 500
+child_overlap_tokens = 40
+
+parent_target_tokens = 900
+parent_max_tokens    = 1200
+```
+
+Current dataset:
+
+```text
+pages          : 4,130
+semantic_units : 13,809
+parents        : 16,043
+children       : 25,268
+```
+
+## Data Schema
+
+The processed chunk file follows this structure:
+
+```json
 {
-  "config": {
-    "tokenizer": "cl100k_base",
-    "child_target_tokens": 400,
-    "child_max_tokens": 500,
-    "child_overlap_tokens": 40,
-    "parent_target_tokens": 900,
-    "parent_max_tokens": 1200
-  },
-
-  "stats": {
-    "pages": 4130,
-    "semantic_units": 13809,
-    "parents": 16043,
-    "children": 25268,
-    "max_parent_tokens": 1200,
-    "max_child_tokens": 500,
-    "mean_parent_tokens": 477.3,
-    "mean_child_tokens": 303.6
-  },
-
+  "config": {},
+  "stats": {},
   "parents": [
     {
-      "parent_id": "10008#sec_0#parent_000",
-      "semantic_unit_id": "10008#sec_0",
-      "page_id": "10008",
-      "page_title": "عنوان صفحه",
-      "page_url": "https://...",
-      "unit_type": "section",
-      "section_index": 0,
-      "section_heading": "عنوان بخش",
-      "section_level": "h2",
-      "parent_index": 0,
-      "text": "متن parent",
+      "parent_id": "...",
+      "page_id": "...",
+      "page_title": "...",
+      "page_url": "...",
+      "section_heading": "...",
+      "text": "...",
       "tokens": 850
     }
   ],
-
   "children": [
     {
-      "chunk_id": "10008#sec_0#parent_000#child_000",
-      "parent_id": "10008#sec_0#parent_000",
-      "semantic_unit_id": "10008#sec_0",
-      "page_id": "10008",
-      "page_title": "عنوان صفحه",
-      "page_url": "https://...",
-      "unit_type": "section",
-      "section_index": 0,
-      "section_heading": "عنوان بخش",
-      "section_level": "h2",
-      "parent_index": 0,
-      "child_index": 0,
-      "text": "متن child",
+      "chunk_id": "...",
+      "parent_id": "...",
+      "page_id": "...",
+      "page_title": "...",
+      "page_url": "...",
+      "section_heading": "...",
+      "text": "...",
       "tokens": 380
     }
   ]
 }
+```
+
+## Retrieval
+
+Dense retrieval currently uses:
+
+- Jina embeddings
+- 1024-dimensional vectors
+- Qdrant vector database
+- Cosine similarity
+- Configurable Top-K retrieval
+- Scores, metadata, and source URLs
+- Context construction for the next RAG stage
+
+```text
+Query
+  ↓
+Query Embedding
+  ↓
+Qdrant Search
+  ↓
+Top-K Children
+  ↓
+RetrievalResult
+  ↓
+ContextBuilder
+```
+
+## Status
+
+**v0.1-rag-baseline**
+
+Current focus: data processing, chunking, embedding, vector storage, dense retrieval, and context building.
+
+Next steps include retrieval evaluation, hybrid search, reranking, and grounded generation.
