@@ -4,11 +4,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
 import numpy as np
+from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from qdrant_client import models
 
@@ -17,8 +19,36 @@ from qdrant_client import models
 # Configuration
 # ============================================================
 
-QDRANT_URL = "http://localhost:6333"
-COLLECTION_NAME = "persian_cultural_chunks"
+# ============================================================
+# Environment
+# ============================================================
+
+def _load_env() -> None:
+    """
+    Find .env by walking upward from this file and load it.
+    """
+
+    script_dir = Path(__file__).resolve().parent
+
+    for directory in [script_dir, *script_dir.parents]:
+        candidate = directory / ".env"
+
+        if candidate.exists():
+            load_dotenv(candidate)
+            break
+
+
+_load_env()
+
+QDRANT_URL = os.getenv(
+    "QDRANT_URL",
+    "http://localhost:6333",
+)
+
+COLLECTION_NAME = os.getenv(
+    "QDRANT_COLLECTION",
+    "persian_cultural_chunks",
+)
 
 VECTOR_SIZE = 1024
 DEFAULT_BATCH_SIZE = 256
