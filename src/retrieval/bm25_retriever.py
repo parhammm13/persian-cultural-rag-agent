@@ -16,7 +16,7 @@ from rank_bm25 import BM25Okapi
 
     
 
-normalizer = Normalizer()
+normalizer = Normalizer()   
 
 STOPWORDS = set(
     stopwords_list()

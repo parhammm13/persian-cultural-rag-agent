@@ -15,10 +15,13 @@ graph TD
     C --> D[Embedding]
     D --> E[(Qdrant)]
 
-    F[User Query] --> G[Query Embedding]
-    G --> H[Dense Retrieval]
-    E --> H
-    H --> I[Top-K Chunks]
+    F[User Query] --> G1[Query Embedding]
+    F --> G2[BM25 Preprocessing]
+    G1 --> H1[Dense Retrieval]
+    E --> H1
+    G2 --> H2[BM25 Retrieval]
+    H1 --> I[RRF Fusion + Parent Expansion]
+    H2 --> I
     I --> J[Context Builder]
 ```
 
@@ -104,7 +107,6 @@ Dense retrieval currently uses:
 - Cosine similarity
 - Configurable Top-K retrieval
 - Scores, metadata, and source URLs
-- Context construction for the next RAG stage
 
 ```text
 Query
@@ -116,14 +118,56 @@ Qdrant Search
 Top-K Children
   ↓
 RetrievalResult
-  ↓
-ContextBuilder
+```
+
+### Hybrid Retrieval (v0.2)
+
+`hybrid_retriever.py` combines dense + BM25 with Reciprocal Rank Fusion (RRF, k=60),
+fuses at the **parent level** (sibling children of one parent accumulate votes),
+merges byte-identical duplicate chunks (SHA256 text fingerprint), and returns
+parent texts (small-to-big).
+
+```text
+Query
+  ├─→ Dense retrieval   → ranked list (2×K children)
+  └─→ BM25 retrieval    → ranked list (2×K children)
+            ↓
+   Duplicate merge (identical text → canonical chunk_id)
+            ↓
+   Parent projection (children → parents)
+            ↓
+   RRF fusion at parent level
+            ↓
+     Top-K RetrievalResult (parent texts + child provenance)
+```
+
+Structured JSON logs are emitted per query (`retrieve.start`, `sparse.done`,
+`dense.done`, `dedupe.done`, `retrieve.done`) with a shared `run_id`,
+ready for later LangSmith ingestion.
+
+Usage:
+
+```powershell
+# Full hybrid (Jina API + Qdrant required)
+python -m src.retrieval.hybrid_retriever "query" --top-k 5
+
+# BM25-only offline mode
+python -m src.retrieval.hybrid_retriever "query" --no-dense --top-k 3
+
+# Child-level fusion without parent expansion
+python -m src.retrieval.hybrid_retriever "query" --no-parent-fusion
+
+# DEBUG logging
+python -m src.retrieval.hybrid_retriever "query" --verbose
 ```
 
 ## Status
 
-**v0.1-rag-baseline**
+**v0.2-hybrid-retrieval**
 
-Current focus: data processing, chunking, embedding, vector storage, dense retrieval, and context building.
+Current focus: hybrid search — dense + BM25 fused via RRF with parent expansion.
 
-Next steps include retrieval evaluation, hybrid search, reranking, and grounded generation.
+Completed: data processing, chunking, embedding, vector storage, dense retrieval,
+BM25 sparse retrieval, hybrid retrieval (RRF + parent expansion).
+
+Next steps include context building, grounded generation, reranking, and retrieval evaluation.
