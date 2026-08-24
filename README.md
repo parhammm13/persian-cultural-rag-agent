@@ -22,7 +22,9 @@ graph TD
     G2 --> H2[BM25 Retrieval]
     H1 --> I[RRF Fusion + Parent Expansion]
     H2 --> I
-    I --> J[Context Builder]
+    I --> R[Jina Cross-Encoder Reranking]
+    R --> J[Context Builder]
+    J --> L[OpenRouter Generation]
 ```
 
 ## Chunking
@@ -161,13 +163,62 @@ python -m src.retrieval.hybrid_retriever "query" --no-parent-fusion
 python -m src.retrieval.hybrid_retriever "query" --verbose
 ```
 
+### Reranking
+
+Retrieval is fast but reads documents in isolation. Reranking is slower but reads
+the query together with every candidate, producing a more precise final order.
+
+`JinaReranker` uses the Jina Reranker API (`jina-reranker-v2-base-multilingual`)
+to reorder hybrid candidates. The returned `score` is the cross-encoder
+relevance score; the original dense/BM25/RRF score is preserved in
+`metadata["retrieval_score"]`.
+
+```text
+Top-20 hybrid candidates
+  ↓
+Jina cross-encoder rerank
+  ↓
+Top-5 RetrievalResult (reranked)
+```
+
+## Generation
+
+`RAGPipeline` (`src/rag/pipeline.py`) orchestrates the full flow:
+retrieve → rerank → build context → generate.
+
+- **Context builder**: numbered Persian blocks (page title, section heading,
+  source URL, text), capped at `max_context_chars` (default 18,000).
+- **Generator**: `OpenRouterGenerator` calls the OpenRouter chat completions
+  endpoint with a grounded Persian system prompt — answer only from sources,
+  cite claims like `[1]`, say explicitly when sources are insufficient.
+- **Response**: `RAGResponse` with `answer`, ranked `Source` entries
+  (chunk_id, page title, section heading, URL, score), model name, and token usage.
+- **Tracing**: stage-level spans (`rag.pipeline`, `rag.retrieve`, `rag.rerank`,
+  `rag.generate`) using OpenInference conventions, exported to
+  [Arize Phoenix](https://arize.com/phoenix/). Content capture can be disabled
+  via `PHOENIX_CAPTURE_CONTENT=0` for privacy-safe traces.
+
+Configuration comes from `.env` via `RAGSettings.from_env()` (`src/rag/factory.py`),
+which wires BM25 + dense + hybrid retrievers, reranker, and generator into a
+single pipeline. Key variables: `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`,
+`JINA_API_KEY`, `QDRANT_URL`, plus optional tuning: `RAG_CANDIDATE_K` (20),
+`RAG_FINAL_K` (5), `RAG_MAX_CONTEXT_CHARS` (18000), `RAG_API_TIMEOUT` (120),
+`PHOENIX_*` tracing settings.
+
+Usage:
+
+```powershell
+# Run the full RAG pipeline end-to-end (Qdrant + Jina + OpenRouter required)
+python -m src.rag.test
+```
+
 ## Status
 
-**v0.2-hybrid-retrieval**
+**v0.2-full-rag**
 
-Current focus: hybrid search — dense + BM25 fused via RRF with parent expansion.
+Completed in this release: data processing, chunking, embedding, vector storage,
+dense retrieval, BM25 sparse retrieval, hybrid retrieval (RRF + parent expansion),
+reranking, context building, OpenRouter grounded generation, Phoenix observability.
 
-Completed: data processing, chunking, embedding, vector storage, dense retrieval,
-BM25 sparse retrieval, hybrid retrieval (RRF + parent expansion).
-
-Next steps include context building, grounded generation, reranking, and retrieval evaluation.
+Next steps include retrieval evaluation, metadata filtering, dependency pinning,
+tests, and packaging.

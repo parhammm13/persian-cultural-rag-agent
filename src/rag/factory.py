@@ -1,4 +1,4 @@
-"""Build the complete RAG pipeline from environment configuration."""
+"""Build the complete RAG pipeline and connect its Phoenix tracer."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from ..retrieval.hybrid_retriever import HybridRetriever, ParentStore
 from ..retrieval.reranker import JinaReranker
 from ..retrieval.vector_store import QdrantVectorStore
 from .generator import OpenRouterGenerator
+from .observability import setup_phoenix_tracer
 from .pipeline import RAGPipeline
 
 
@@ -203,6 +204,8 @@ def build_rag_pipeline(
         max_retries=settings.max_retries,
     )
 
+    tracer = setup_phoenix_tracer()
+
     return RAGPipeline(
         retriever=hybrid_retriever,
         reranker=reranker,
@@ -210,6 +213,7 @@ def build_rag_pipeline(
         candidate_k=settings.candidate_k,
         final_k=settings.final_k,
         max_context_chars=settings.max_context_chars,
+        tracer=tracer,
     )
 
 

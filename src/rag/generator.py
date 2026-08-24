@@ -1,4 +1,4 @@
-"""Answer generation through OpenRouter's chat-completions API."""
+"""Answer generation through OpenRouter; contains no self-imports."""
 
 from __future__ import annotations
 
