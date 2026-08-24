@@ -11,13 +11,13 @@ from pathlib import Path
 from typing import Any
 
 from .bm25_retriever import BM25Result, BM25Retriever
+from .dense_retriever import DenseRetriever, RetrievalResult
 from .embedder import (
     DEFAULT_MAX_RETRIES,
     DEFAULT_TIMEOUT,
     embed_query,
     load_jina_api_key,
 )
-from .retriever import DenseRetriever, RetrievalResult
 from .vector_store import COLLECTION_NAME, QDRANT_URL, QdrantVectorStore
 
 
@@ -440,16 +440,24 @@ class HybridRetriever:
 
         if self.parent_level_fusion:
             ranked_lists = [
-                self._to_parent_level_results(result)
+                self._to_parent_level_results(ranked_list)
                 for ranked_list in ranked_lists
-                for result in [ranked_list]
             ]
-
-            ranked_lists = [
-                ranked_list
-                for ranked_list in ranked_lists
-                if ranked_list
-            ]
+            # Drop empty lists (e.g. sparse returned 0 hits)
+            ranked_lists = [lst for lst in ranked_lists if lst]
+            # Re-deduplicate at parent level: two children of the
+            # same parent would otherwise produce duplicate parent ids
+            # in a single ranked list and inflate RRF votes.
+            deduped: list[list[RetrievalResult]] = []
+            for lst in ranked_lists:
+                seen: set[str] = set()
+                uniq: list[RetrievalResult] = []
+                for r in lst:
+                    if r.chunk_id not in seen:
+                        seen.add(r.chunk_id)
+                        uniq.append(r)
+                deduped.append(uniq)
+            ranked_lists = deduped
 
         fused = fuse_rankings(
             ranked_lists=ranked_lists,
@@ -553,6 +561,7 @@ class HybridRetriever:
     ) -> list[RetrievalResult]:
 
         projected: list[RetrievalResult] = []
+        seen_parent_ids: set[str] = set()
 
         for position, result in enumerate(
             ranked_list,
@@ -564,7 +573,10 @@ class HybridRetriever:
             )
 
             if not parent_id:
-                projected.append(result)
+                # Keep child as-is; dedup by chunk_id already done
+                if result.chunk_id not in seen_parent_ids:
+                    seen_parent_ids.add(result.chunk_id)
+                    projected.append(result)
                 continue
 
             parent_id = str(parent_id)
@@ -574,12 +586,22 @@ class HybridRetriever:
             )
 
             if parent is None:
-                projected.append(result)
+                if result.chunk_id not in seen_parent_ids:
+                    seen_parent_ids.add(result.chunk_id)
+                    projected.append(result)
                 continue
+
+            # Avoid duplicate parent entries from sibling children
+            # in the same ranked list (first occurrence wins).
+            if parent.parent_id in seen_parent_ids:
+                continue
+            seen_parent_ids.add(parent.parent_id)
 
             projected.append(
                 RetrievalResult(
-                    score=float(position),
+                    # Preserve original relevance score; RRF ignores
+                    # score and uses rank, but logs/debugging need it.
+                    score=float(result.score),
                     chunk_id=parent.parent_id,
                     text=parent.text,
                     page_title=(
@@ -599,6 +621,7 @@ class HybridRetriever:
                         "expanded_parent_id": parent.parent_id,
                         "child_chunk_id": result.chunk_id,
                         "child_position_in_list": position,
+                        "child_score": float(result.score),
                     },
                 )
             )
