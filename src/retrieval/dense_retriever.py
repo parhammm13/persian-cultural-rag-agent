@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 from functools import partial
 from typing import Any, Callable
 
 import numpy as np
+
+from .types import RetrievalResult
 
 from .embedder import (
     DEFAULT_MAX_RETRIES,
@@ -26,30 +27,6 @@ from .vector_store import (
 # ============================================================
 
 DEFAULT_TOP_K = 5
-
-
-# ============================================================
-# Retrieval result (canonical definition)
-# ============================================================
-
-@dataclass(frozen=True, slots=True)
-class RetrievalResult:
-    """
-    Clean result returned by the retriever.
-
-    Qdrant-specific objects should not leak into the rest
-    of the RAG pipeline.
-    """
-
-    score: float
-    chunk_id: str
-    text: str
-
-    page_title: str
-    section_heading: str | None
-    source_url: str
-
-    metadata: dict[str, Any]
 
 
 # ============================================================

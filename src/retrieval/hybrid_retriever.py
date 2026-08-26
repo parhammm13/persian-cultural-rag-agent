@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .bm25_retriever import BM25Result, BM25Retriever
-from .dense_retriever import DenseRetriever, RetrievalResult
+from .dense_retriever import DenseRetriever
 from .embedder import (
     DEFAULT_MAX_RETRIES,
     DEFAULT_TIMEOUT,
@@ -19,6 +19,7 @@ from .embedder import (
     load_jina_api_key,
 )
 from .vector_store import COLLECTION_NAME, QDRANT_URL, QdrantVectorStore
+from .types import RetrievalResult
 
 
 # ============================================================

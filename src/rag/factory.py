@@ -1,4 +1,4 @@
-"""Build the complete RAG pipeline and connect its Phoenix tracer."""
+"""Build the LangChain RAG pipeline and connect its Phoenix tracer."""
 
 from __future__ import annotations
 
@@ -11,9 +11,7 @@ from dotenv import load_dotenv
 
 from ..retrieval.bm25_retriever import BM25Retriever
 from ..retrieval.dense_retriever import DenseRetriever
-from ..retrieval.embedder import (
-    embed_query,
-)
+from ..retrieval.embedder import embed_query
 from ..retrieval.hybrid_retriever import HybridRetriever, ParentStore
 from ..retrieval.reranker import JinaReranker
 from ..retrieval.vector_store import QdrantVectorStore
@@ -45,29 +43,23 @@ def _required_env(name: str) -> str:
 
 def _positive_int_env(name: str, default: int) -> int:
     raw_value = os.getenv(name, str(default)).strip()
-
     try:
         value = int(raw_value)
     except ValueError as error:
         raise RuntimeError(f"{name} must be an integer.") from error
-
     if value <= 0:
         raise RuntimeError(f"{name} must be > 0.")
-
     return value
 
 
 def _nonnegative_int_env(name: str, default: int) -> int:
     raw_value = os.getenv(name, str(default)).strip()
-
     try:
         value = int(raw_value)
     except ValueError as error:
         raise RuntimeError(f"{name} must be an integer.") from error
-
     if value < 0:
         raise RuntimeError(f"{name} must be >= 0.")
-
     return value
 
 
@@ -96,10 +88,7 @@ class RAGSettings:
         project_root = env_path.parent if env_path else Path.cwd()
 
         bm25_index_dir = Path(
-            os.getenv(
-                "BM25_INDEX_DIR",
-                "Data/processed/bm25",
-            )
+            os.getenv("BM25_INDEX_DIR", "Data/processed/bm25")
         )
         chunks_json = Path(
             os.getenv(
@@ -110,7 +99,6 @@ class RAGSettings:
 
         if not bm25_index_dir.is_absolute():
             bm25_index_dir = project_root / bm25_index_dir
-
         if not chunks_json.is_absolute():
             chunks_json = project_root / chunks_json
 
@@ -147,6 +135,14 @@ class RAGSettings:
 
         if settings.final_k > settings.candidate_k:
             raise RuntimeError("RAG_FINAL_K must be <= RAG_CANDIDATE_K.")
+        if not settings.openrouter_base_url:
+            raise RuntimeError("OPENROUTER_BASE_URL must not be empty.")
+        if not settings.openrouter_model:
+            raise RuntimeError("OPENROUTER_MODEL must not be empty.")
+        if not settings.qdrant_url:
+            raise RuntimeError("QDRANT_URL must not be empty.")
+        if not settings.qdrant_collection:
+            raise RuntimeError("QDRANT_COLLECTION must not be empty.")
 
         return settings
 
@@ -154,13 +150,17 @@ class RAGSettings:
 def build_rag_pipeline(
     settings: RAGSettings | None = None,
 ) -> RAGPipeline:
-    """Construct all retrieval, reranking, and generation dependencies."""
+    """Construct retrieval, reranking, LCEL generation, and Phoenix tracing."""
     settings = settings or RAGSettings.from_env()
+
+    # Register Phoenix before invoking any LangChain runnable. The manual stage
+    # spans always work; optional LangChain auto-instrumentation is controlled
+    # by PHOENIX_AUTO_INSTRUMENT_LANGCHAIN.
+    tracer = setup_phoenix_tracer()
 
     sparse_retriever = BM25Retriever.load(
         index_dir=settings.bm25_index_dir,
     )
-
     parent_store = ParentStore.load(
         chunked_data_path=settings.chunks_json,
     )
@@ -171,31 +171,26 @@ def build_rag_pipeline(
         timeout=settings.api_timeout,
         max_retries=settings.max_retries,
     )
-
     vector_store = QdrantVectorStore(
         url=settings.qdrant_url,
         collection_name=settings.qdrant_collection,
     )
-
     dense_retriever = DenseRetriever(
         vector_store=vector_store,
         query_embedder=query_embedder,
         top_k=settings.candidate_k,
     )
-
     hybrid_retriever = HybridRetriever(
         dense_retriever=dense_retriever,
         sparse_retriever=sparse_retriever,
         parent_store=parent_store,
         top_k=settings.candidate_k,
     )
-
     reranker = JinaReranker(
         api_key=settings.jina_api_key,
         timeout=settings.api_timeout,
         max_retries=settings.max_retries,
     )
-
     generator = OpenRouterGenerator(
         api_key=settings.openrouter_api_key,
         base_url=settings.openrouter_base_url,
@@ -203,8 +198,6 @@ def build_rag_pipeline(
         timeout=settings.api_timeout,
         max_retries=settings.max_retries,
     )
-
-    tracer = setup_phoenix_tracer()
 
     return RAGPipeline(
         retriever=hybrid_retriever,

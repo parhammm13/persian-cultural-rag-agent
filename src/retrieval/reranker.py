@@ -18,7 +18,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from .dense_retriever import RetrievalResult
+from .types import RetrievalResult
 
 
 JINA_RERANK_URL = "https://api.jina.ai/v1/rerank"
@@ -185,4 +185,3 @@ class JinaReranker:
         raise JinaRerankerError(
             f"Jina request failed after {self.max_retries + 1} attempts."
         ) from last_error
-
