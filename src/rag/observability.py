@@ -1,4 +1,4 @@
-"""Phoenix/OpenTelemetry setup for RAG monitoring."""
+"""Phoenix/OpenTelemetry setup for LangChain RAG monitoring."""
 
 from __future__ import annotations
 
@@ -56,12 +56,22 @@ def capture_content_enabled() -> bool:
     return _env_bool("PHOENIX_CAPTURE_CONTENT", True)
 
 
-def setup_phoenix_tracer() -> Any:
-    """Initialize Phoenix once and return an OpenInference tracer.
+def langchain_auto_instrument_enabled() -> bool:
+    """Whether Phoenix should automatically instrument LangChain runnables.
 
-    ``PHOENIX_COLLECTOR_ENDPOINT`` and ``PHOENIX_API_KEY`` are read by
-    Phoenix itself. A local unauthenticated server needs no API key.
+    Auto-instrumentation can record prompts and model responses. It is therefore
+    disabled whenever ``PHOENIX_CAPTURE_CONTENT`` is false; the explicit stage
+    spans in ``pipeline.py`` remain active and content-safe in that mode.
     """
+    requested = _env_bool(
+        "PHOENIX_AUTO_INSTRUMENT_LANGCHAIN",
+        False,
+    )
+    return requested and capture_content_enabled()
+
+
+def setup_phoenix_tracer() -> Any:
+    """Initialize Phoenix once and return an OpenInference tracer."""
     global _tracer
 
     if _tracer is not None:
@@ -84,11 +94,20 @@ def setup_phoenix_tracer() -> Any:
             "Install it with: pip install \"arize-phoenix-otel>=0.16.0\""
         ) from error
 
+    auto_instrument = langchain_auto_instrument_enabled()
+    if auto_instrument:
+        try:
+            import openinference.instrumentation.langchain  # noqa: F401
+        except ImportError as error:
+            raise RuntimeError(
+                "Phoenix LangChain auto-instrumentation is enabled but "
+                "openinference-instrumentation-langchain is missing."
+            ) from error
+
     project_name = os.getenv(
         "PHOENIX_PROJECT_NAME",
-        "persian-cultural-rag-agent",
+        "persian-cultural-rag-agent-v2",
     ).strip()
-
     if not project_name:
         raise RuntimeError("PHOENIX_PROJECT_NAME must not be empty.")
 
@@ -96,10 +115,6 @@ def setup_phoenix_tracer() -> Any:
         "PHOENIX_COLLECTOR_ENDPOINT",
         "http://localhost:6006",
     ).strip().rstrip("/")
-
-    # OTLP over HTTP must POST to the traces ingestion route. Supplying the
-    # full path also works across Phoenix OTEL SDK versions that do not append
-    # it automatically, avoiding HTTP 405 from the Phoenix web root.
     if not endpoint.endswith("/v1/traces"):
         endpoint = f"{endpoint}/v1/traces"
 
@@ -107,9 +122,8 @@ def setup_phoenix_tracer() -> Any:
         endpoint=endpoint,
         project_name=project_name,
         protocol="http/protobuf",
-        # Immediate export is convenient for short CLI/test processes.
         batch=_env_bool("PHOENIX_BATCH", False),
-        auto_instrument=False,
+        auto_instrument=auto_instrument,
     )
 
     _tracer = tracer_provider.get_tracer(__name__)
@@ -119,5 +133,6 @@ def setup_phoenix_tracer() -> Any:
 __all__ = [
     "NoOpTracer",
     "capture_content_enabled",
+    "langchain_auto_instrument_enabled",
     "setup_phoenix_tracer",
 ]

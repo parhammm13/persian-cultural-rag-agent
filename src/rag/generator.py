@@ -1,14 +1,14 @@
-"""Answer generation through OpenRouter; contains no self-imports."""
+"""Grounded answer generation through LangChain's OpenRouter integration."""
 
 from __future__ import annotations
 
-import json
-import time
 from dataclasses import dataclass
-from typing import Any, Callable
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from typing import Any
 
+from langchain_core.messages import AIMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import Runnable
+from langchain_openai import ChatOpenAI
 
 DEFAULT_SYSTEM_PROMPT = """شما دستیار دانش فرهنگ ایران هستید.
 فقط با استفاده از منابع داده‌شده پاسخ بده.
@@ -29,7 +29,7 @@ class GenerationResult:
 
 
 class OpenRouterGenerator:
-    """Small, dependency-light client for OpenRouter generation."""
+    """Generate grounded answers with a LangChain prompt/model runnable."""
 
     def __init__(
         self,
@@ -41,16 +41,16 @@ class OpenRouterGenerator:
         temperature: float = 0.1,
         max_tokens: int = 700,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
-        request_opener: Callable[..., Any] | None = None,
+        chat_model: Runnable[Any, AIMessage] | None = None,
     ) -> None:
         api_key = api_key.strip()
         base_url = base_url.strip().rstrip("/")
         model = model.strip()
         system_prompt = system_prompt.strip()
 
-        if not api_key:
+        if not api_key and chat_model is None:
             raise ValueError("api_key must not be empty.")
-        if not base_url:
+        if not base_url and chat_model is None:
             raise ValueError("base_url must not be empty.")
         if not model:
             raise ValueError("model must not be empty.")
@@ -65,15 +65,34 @@ class OpenRouterGenerator:
         if max_tokens <= 0:
             raise ValueError("max_tokens must be > 0.")
 
-        self.api_key = api_key
-        self.endpoint = f"{base_url}/chat/completions"
-        self.model = model
-        self.timeout = timeout
-        self.max_retries = max_retries
-        self.temperature = temperature
-        self.max_tokens = max_tokens
-        self.system_prompt = system_prompt
-        self.request_opener = request_opener or urlopen
+        self.model_name = model
+
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", system_prompt),
+                (
+                    "human",
+                    "پرسش:\n{query}\n\n"
+                    "منابع:\n{context}\n\n"
+                    "پاسخ مستند:",
+                ),
+            ]
+        )
+
+        model_runnable = chat_model or ChatOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            timeout=timeout,
+            max_retries=max_retries,
+            temperature=temperature,
+            max_completion_tokens=max_tokens,
+            use_responses_api=False,
+        )
+
+        self.chain = (prompt | model_runnable).with_config(
+            {"run_name": "rag.openrouter.generate"}
+        )
 
     def generate(
         self,
@@ -88,105 +107,81 @@ class OpenRouterGenerator:
         if not context:
             raise ValueError("context must not be empty.")
 
-        payload = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": self.system_prompt,
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"پرسش:\n{query}\n\n"
-                        f"منابع:\n{context}\n\n"
-                        "پاسخ مستند:"
-                    ),
-                },
-            ],
-            "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
-        }
+        response = self.chain.invoke(
+            {
+                "query": query,
+                "context": context,
+            }
+        )
 
-        data = self._post(payload)
-        answer = self._extract_answer(data)
-        actual_model = data.get("model", self.model)
-        usage = data.get("usage", {})
+        if not isinstance(response, AIMessage):
+            raise OpenRouterError("OpenRouter returned an invalid message type.")
+
+        answer = self._extract_answer(response)
+        model = (
+            response.response_metadata.get("model_name")
+            or response.response_metadata.get("model")
+            or self.model_name
+        )
 
         return GenerationResult(
             answer=answer,
-            model=str(actual_model),
-            usage=usage if isinstance(usage, dict) else {},
+            model=str(model),
+            usage=self._normalize_usage(response.usage_metadata),
         )
 
-    def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        }
-
-        last_error: Exception | None = None
-
-        for attempt in range(self.max_retries + 1):
-            request = Request(
-                self.endpoint,
-                data=json.dumps(payload).encode("utf-8"),
-                method="POST",
-                headers=headers,
-            )
-
-            try:
-                with self.request_opener(
-                    request,
-                    timeout=self.timeout,
-                ) as response:
-                    body = response.read().decode("utf-8")
-
-                data = json.loads(body)
-                if not isinstance(data, dict):
-                    raise OpenRouterError("OpenRouter returned invalid JSON data.")
-
-                return data
-
-            except HTTPError as error:
-                last_error = error
-                if error.code not in {429, 500, 502, 503, 504}:
-                    raise OpenRouterError(
-                        f"OpenRouter request failed with HTTP {error.code}."
-                    ) from error
-            except (URLError, TimeoutError) as error:
-                last_error = error
-            except json.JSONDecodeError as error:
-                raise OpenRouterError("OpenRouter returned malformed JSON.") from error
-
-            if attempt < self.max_retries:
-                time.sleep(2**attempt)
-
-        raise OpenRouterError(
-            f"OpenRouter request failed after {self.max_retries + 1} attempts."
-        ) from last_error
-
     @staticmethod
-    def _extract_answer(data: dict[str, Any]) -> str:
-        choices = data.get("choices")
+    def _extract_answer(response: AIMessage) -> str:
+        content = response.content
 
-        if not isinstance(choices, list) or not choices:
-            raise OpenRouterError("OpenRouter response has no choices.")
+        if isinstance(content, str):
+            answer = content.strip()
+        elif isinstance(content, list):
+            parts: list[str] = []
+            for block in content:
+                if isinstance(block, str):
+                    parts.append(block)
+                elif isinstance(block, dict):
+                    text = block.get("text")
+                    if isinstance(text, str):
+                        parts.append(text)
+            answer = "\n".join(parts).strip()
+        else:
+            answer = ""
 
-        first_choice = choices[0]
-        if not isinstance(first_choice, dict):
-            raise OpenRouterError("OpenRouter returned an invalid choice.")
-
-        message = first_choice.get("message")
-        if not isinstance(message, dict):
-            raise OpenRouterError("OpenRouter response has no message.")
-
-        content = message.get("content")
-        if not isinstance(content, str) or not content.strip():
+        if not answer:
             raise OpenRouterError("OpenRouter returned an empty answer.")
 
-        return content.strip()
+        return answer
+
+    @staticmethod
+    def _normalize_usage(
+        usage_metadata: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        if not usage_metadata:
+            return {}
+
+        usage: dict[str, Any] = {}
+        key_map = {
+            "input_tokens": "prompt_tokens",
+            "output_tokens": "completion_tokens",
+            "total_tokens": "total_tokens",
+        }
+
+        for source_key, target_key in key_map.items():
+            value = usage_metadata.get(source_key)
+            if isinstance(value, int) and not isinstance(value, bool):
+                usage[target_key] = value
+
+        for detail_key in (
+            "input_token_details",
+            "output_token_details",
+        ):
+            details = usage_metadata.get(detail_key)
+            if isinstance(details, dict):
+                usage[detail_key] = dict(details)
+
+        return usage
 
 
 __all__ = [
