@@ -20,11 +20,9 @@ from typing import Any
 DEFAULT_CHUNKED = Path("Data/processed/chunked_data.json")
 DEFAULT_CATEGORY = Path("Data/iran_heritage_classification_final.csv")
 
-# category field used for stratification
+# Page category is used only to make the sampled pages diverse. It does not
+# constrain or label the questions generated from those pages.
 DEFAULT_CATEGORY_FIELD = "final_class_code"
-
-# question categories are NOT page categories; kept separate
-PAGE_CATEGORY_FIELD = DEFAULT_CATEGORY_FIELD
 
 EXCLUDED_CLASS_CODES = {"exclude_non_site", "uncertain"}
 

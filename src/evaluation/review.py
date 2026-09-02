@@ -36,7 +36,7 @@ def save_data(df):
 # نمایش داده‌های نمونه فعلی
 def show_sample(idx, df):
     if df.empty or idx < 0 or idx >= len(df):
-        return ("نمونه‌ای یافت نشد",) + ("",) * 11
+        return ("نمونه‌ای یافت نشد",) + ("",) * 10
 
     row = df.iloc[idx]
     status = safe_str(row.get("review_status", ""))
@@ -47,7 +47,6 @@ def show_sample(idx, df):
     q_val = safe_str(row.get("question", ""))
     a_val = safe_str(row.get("reference_answer", ""))
     supp_val = safe_str(row.get("supporting_text", ""))
-    cat_val = safe_str(row.get("query_category", ""))
     diff_val = safe_str(row.get("difficulty", ""))
     page_val = safe_str(row.get("page_title", ""))
     parent_val = safe_str(row.get("parent_ids", ""))
@@ -59,15 +58,14 @@ def show_sample(idx, df):
         header_info,     # 1. header
         q_val,           # 2. q_display
         a_val,           # 3. ans_display
-        cat_val,         # 4. cat_display
-        diff_val,        # 5. diff_display
-        page_val,        # 6. page_display
-        parent_val,      # 7. parent_display
-        child_val,       # 8. child_display
-        supp_val,        # 9. supp_display
-        q_val,           # 10. edit_q
-        a_val,           # 11. edit_ans
-        note_val,        # 12. note_input
+        diff_val,        # 4. diff_display
+        page_val,        # 5. page_display
+        parent_val,      # 6. parent_display
+        child_val,       # 7. child_display
+        supp_val,        # 8. supp_display
+        q_val,           # 9. edit_q
+        a_val,           # 10. edit_ans
+        note_val,        # 11. note_input
     )
 
 
@@ -127,7 +125,6 @@ with gr.Blocks(css=css, title="ابزار ارزیابی و بررسی داده"
                 )
 
             with gr.Column(scale=1):
-                cat_display = gr.Textbox(label="دسته (Category)", interactive=False)
                 diff_display = gr.Textbox(label="سختی (Difficulty)", interactive=False)
                 page_display = gr.Textbox(label="عنوان صفحه (Page Title)", interactive=False)
                 parent_display = gr.Textbox(label="Parent IDs", interactive=False)
@@ -156,7 +153,6 @@ with gr.Blocks(css=css, title="ابزار ارزیابی و بررسی داده"
         header,
         q_display,
         ans_display,
-        cat_display,
         diff_display,
         page_display,
         parent_display,
