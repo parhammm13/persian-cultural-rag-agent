@@ -214,11 +214,9 @@ python -m src.rag.test
 
 ## Status
 
-**v0.2-full-rag**
-
+**v0.3-evaluated-rag**
 Completed in this release: data processing, chunking, embedding, vector storage,
 dense retrieval, BM25 sparse retrieval, hybrid retrieval (RRF + parent expansion),
 reranking, context building, OpenRouter grounded generation, Phoenix observability.
 
-Next steps include retrieval evaluation, metadata filtering, dependency pinning,
-tests, and packaging.
+We fully evaluated both the retrieval and generation stages
