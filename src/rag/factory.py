@@ -1,4 +1,4 @@
-"""Build the LangChain RAG pipeline and connect its Phoenix tracer."""
+"""Build the RAG runtime and connect its Phoenix tracer."""
 
 from __future__ import annotations
 
@@ -83,7 +83,7 @@ class RAGSettings:
     max_retries: int = 2
 
     @classmethod
-    def from_env(cls) -> RAGSettings:
+    def from_env(cls) -> "RAGSettings":
         env_path = _load_project_env()
         project_root = env_path.parent if env_path else Path.cwd()
 
@@ -147,10 +147,21 @@ class RAGSettings:
         return settings
 
 
-def build_rag_pipeline(
+@dataclass(frozen=True, slots=True)
+class RAGRuntime:
+    """Shared RAG resources used by API services for the process lifetime."""
+
+    pipeline: RAGPipeline
+    retriever: HybridRetriever
+    reranker: JinaReranker
+    candidate_k: int
+    final_k: int
+
+
+def build_rag_runtime(
     settings: RAGSettings | None = None,
-) -> RAGPipeline:
-    """Construct retrieval, reranking, LCEL generation, and Phoenix tracing."""
+) -> RAGRuntime:
+    """Construct shared retrieval, reranking, generation, and tracing resources."""
     settings = settings or RAGSettings.from_env()
 
     # Register Phoenix before invoking any LangChain runnable. The manual stage
@@ -199,7 +210,7 @@ def build_rag_pipeline(
         max_retries=settings.max_retries,
     )
 
-    return RAGPipeline(
+    pipeline = RAGPipeline(
         retriever=hybrid_retriever,
         reranker=reranker,
         generator=generator,
@@ -209,8 +220,25 @@ def build_rag_pipeline(
         tracer=tracer,
     )
 
+    return RAGRuntime(
+        pipeline=pipeline,
+        retriever=hybrid_retriever,
+        reranker=reranker,
+        candidate_k=settings.candidate_k,
+        final_k=settings.final_k,
+    )
+
+
+def build_rag_pipeline(
+    settings: RAGSettings | None = None,
+) -> RAGPipeline:
+    """Backward-compatible pipeline factory for CLI/programmatic callers."""
+    return build_rag_runtime(settings).pipeline
+
 
 __all__ = [
+    "RAGRuntime",
     "RAGSettings",
     "build_rag_pipeline",
+    "build_rag_runtime",
 ]

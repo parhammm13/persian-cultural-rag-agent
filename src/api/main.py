@@ -2,43 +2,52 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import asynccontextmanager
-from typing import Any
 
 from fastapi import FastAPI
 
-from src.api.routes import health_router, query_router
+from src.api.exception_handlers import register_exception_handlers
+from src.api.middleware import register_http_middleware
+from src.api.routes import health_router, query_router, retrieve_router
+from src.api.runtime import ApplicationRuntimeProtocol
+from src.core.logging import configure_api_logging
 
 
-PipelineBuilder = Callable[[], Any]
+RuntimeBuilder = Callable[[], ApplicationRuntimeProtocol]
 
 
-def build_default_pipeline() -> Any:
-    """Import the heavy RAG factory only when the application starts."""
-    from src.rag.factory import build_rag_pipeline
+def build_default_runtime() -> ApplicationRuntimeProtocol:
+    """Import and construct heavy RAG resources only at application startup."""
+    from src.rag.factory import build_rag_runtime
 
-    return build_rag_pipeline()
+    return build_rag_runtime()
 
 
 def create_app(
-    pipeline_builder: PipelineBuilder = build_default_pipeline,
+    runtime_builder: RuntimeBuilder = build_default_runtime,
 ) -> FastAPI:
+    configure_api_logging()
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        app.state.rag_pipeline = pipeline_builder()
+        app.state.rag_runtime = runtime_builder()
 
         try:
             yield
         finally:
-            app.state.rag_pipeline = None
+            app.state.rag_runtime = None
 
     application = FastAPI(
         title="Persian Cultural RAG API",
-        version="0.1.0",
+        version="0.2.0",
         lifespan=lifespan,
     )
 
+    register_http_middleware(application)
+    register_exception_handlers(application)
+
     application.include_router(health_router)
     application.include_router(query_router)
+    application.include_router(retrieve_router)
 
     return application
 

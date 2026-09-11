@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Protocol
+
+from src.api.request_context import get_current_request_id
+
+
+logger = logging.getLogger("persian_cultural_rag.api")
 
 
 class RAGPipelineProtocol(Protocol):
@@ -24,4 +30,15 @@ class RAGService:
         if not normalized_query:
             raise ValueError("query must not be empty")
 
-        return self._pipeline.run(normalized_query)
+        result = self._pipeline.run(normalized_query)
+
+        logger.info(
+            "rag_query_completed request_id=%s retrieved_count=%s "
+            "reranked_count=%s model=%s",
+            get_current_request_id(),
+            getattr(result, "retrieved_count", None),
+            getattr(result, "reranked_count", None),
+            getattr(result, "model", None),
+        )
+
+        return result

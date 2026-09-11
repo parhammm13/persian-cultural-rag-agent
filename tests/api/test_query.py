@@ -5,6 +5,30 @@ from fastapi.testclient import TestClient
 
 from src.api.main import create_app
 
+from dataclasses import dataclass
+
+class NoopRetriever:
+    def retrieve(self, query: str, top_k: int):
+        return ()
+
+class NoopReranker:
+    def rerank(self, query: str, candidates, top_k: int):
+        return ()
+
+@dataclass
+class FakeRuntime:
+    pipeline: object
+    retriever: object = None
+    reranker: object = None
+    candidate_k: int = 20
+
+    def __post_init__(self):
+        if self.retriever is None:
+            self.retriever = NoopRetriever()
+        if self.reranker is None:
+            self.reranker = NoopReranker()
+
+
 
 @dataclass(frozen=True, slots=True)
 class FakeSource:
@@ -58,7 +82,7 @@ class FakePipeline:
 
 def test_query_maps_rag_dataclass_to_api_response() -> None:
     pipeline = FakePipeline()
-    app = create_app(lambda: pipeline)
+    app = create_app(lambda: FakeRuntime(pipeline))
 
     with TestClient(app) as client:
         response = client.post(
@@ -80,7 +104,7 @@ def test_query_maps_rag_dataclass_to_api_response() -> None:
 
 def test_query_rejects_blank_input_before_pipeline_call() -> None:
     pipeline = FakePipeline()
-    app = create_app(lambda: pipeline)
+    app = create_app(lambda: FakeRuntime(pipeline))
 
     with TestClient(app) as client:
         response = client.post(
@@ -96,7 +120,7 @@ def test_query_rejects_blank_input_before_pipeline_call() -> None:
 
 def test_query_rejects_unknown_request_fields() -> None:
     pipeline = FakePipeline()
-    app = create_app(lambda: pipeline)
+    app = create_app(lambda: FakeRuntime(pipeline))
 
     with TestClient(app) as client:
         response = client.post(

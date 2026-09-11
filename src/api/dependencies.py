@@ -4,25 +4,36 @@ from typing import Annotated, cast
 
 from fastapi import Depends, Request
 
-from src.services.rag_service import RAGPipelineProtocol, RAGService
+from src.api.runtime import ApplicationRuntimeProtocol
+from src.services.rag_service import RAGService
+from src.services.retrieval_service import RetrievalService
 
 
-def get_rag_pipeline(request: Request) -> RAGPipelineProtocol:
-    pipeline = getattr(
-        request.app.state,
-        "rag_pipeline",
-        None,
-    )
-    if pipeline is None:
-        raise RuntimeError("RAG pipeline is not initialized.")
+def get_runtime(request: Request) -> ApplicationRuntimeProtocol:
+    runtime = getattr(request.app.state, "rag_runtime", None)
+    if runtime is None:
+        raise RuntimeError("RAG runtime is not initialized.")
 
-    return cast(RAGPipelineProtocol, pipeline)
+    return cast(ApplicationRuntimeProtocol, runtime)
 
 
 def get_rag_service(
-    pipeline: Annotated[
-        RAGPipelineProtocol,
-        Depends(get_rag_pipeline),
+    runtime: Annotated[
+        ApplicationRuntimeProtocol,
+        Depends(get_runtime),
     ],
 ) -> RAGService:
-    return RAGService(pipeline)
+    return RAGService(runtime.pipeline)
+
+
+def get_retrieval_service(
+    runtime: Annotated[
+        ApplicationRuntimeProtocol,
+        Depends(get_runtime),
+    ],
+) -> RetrievalService:
+    return RetrievalService(
+        runtime.retriever,
+        runtime.reranker,
+        candidate_k=runtime.candidate_k,
+    )

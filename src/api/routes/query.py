@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from src.api.dependencies import get_rag_service
+from src.api.schemas.common import ErrorResponse
 from src.api.schemas.query import QueryRequest, QueryResponse
 from src.services.rag_service import RAGService
 
@@ -16,6 +17,10 @@ router = APIRouter(
 @router.post(
     "",
     response_model=QueryResponse,
+    responses={
+        422: {"model": ErrorResponse},
+        500: {"model": ErrorResponse},
+    },
     summary="Run a standalone RAG query",
 )
 def query(
