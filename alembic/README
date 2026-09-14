@@ -1,0 +1,7 @@
+# Alembic migrations
+
+This directory contains versioned schema changes for the SQL application
+database. The connection URL is read from `DATABASE_URL` by `alembic/env.py`.
+
+Do not call `Base.metadata.create_all()` in application startup. Apply schema
+changes with Alembic instead.

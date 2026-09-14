@@ -8,6 +8,8 @@ from fastapi import FastAPI
 from src.api.exception_handlers import register_exception_handlers
 from src.api.middleware import register_http_middleware
 from src.api.routes import health_router, query_router, retrieve_router
+from src.api.routes.chat import router as chat_router
+from src.api.routes.conversations import router as conversations_router
 from src.api.runtime import ApplicationRuntimeProtocol
 from src.core.logging import configure_api_logging
 
@@ -38,7 +40,7 @@ def create_app(
 
     application = FastAPI(
         title="Persian Cultural RAG API",
-        version="0.2.0",
+        version="0.3.0",
         lifespan=lifespan,
     )
 
@@ -48,6 +50,8 @@ def create_app(
     application.include_router(health_router)
     application.include_router(query_router)
     application.include_router(retrieve_router)
+    application.include_router(conversations_router)
+    application.include_router(chat_router)
 
     return application
 
