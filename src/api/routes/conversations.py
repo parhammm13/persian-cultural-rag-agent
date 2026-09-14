@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
-from src.api.dependencies import get_conversation_service
+from src.api.dependencies import CurrentUser, get_conversation_service
 from src.api.schemas.conversation import (
     ConversationCreateRequest,
     ConversationListResponse,
@@ -14,7 +14,6 @@ from src.api.schemas.conversation import (
 from src.services.conversation_service import (
     ConversationNotFoundError,
     ConversationService,
-    UserNotFoundError,
 )
 
 
@@ -37,14 +36,12 @@ ConversationServiceDep = Annotated[
 def create_conversation(
     request: ConversationCreateRequest,
     service: ConversationServiceDep,
+    user: CurrentUser,
 ) -> ConversationResponse:
-    try:
-        conversation = service.create_conversation(
-            user_id=request.user_id,
-            title=request.title,
-        )
-    except UserNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="user_not_found") from exc
+    conversation = service.create_conversation(
+        user_id=user.id,
+        title=request.title,
+    )
 
     return ConversationResponse.model_validate(conversation)
 
@@ -55,18 +52,15 @@ def create_conversation(
 )
 def list_conversations(
     service: ConversationServiceDep,
-    user_id: Annotated[int, Query(gt=0)],
+    user: CurrentUser,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> ConversationListResponse:
-    try:
-        conversations = service.list_conversations(
-            user_id=user_id,
-            limit=limit,
-            offset=offset,
-        )
-    except UserNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="user_not_found") from exc
+    conversations = service.list_conversations(
+        user_id=user.id,
+        limit=limit,
+        offset=offset,
+    )
 
     items = [ConversationResponse.model_validate(item) for item in conversations]
     return ConversationListResponse(items=items, count=len(items))
@@ -79,11 +73,11 @@ def list_conversations(
 def get_conversation(
     conversation_id: int,
     service: ConversationServiceDep,
-    user_id: Annotated[int, Query(gt=0)],
+    user: CurrentUser,
 ) -> ConversationResponse:
     try:
         conversation = service.get_conversation(
-            user_id=user_id,
+            user_id=user.id,
             conversation_id=conversation_id,
         )
     except ConversationNotFoundError as exc:
@@ -99,13 +93,13 @@ def get_conversation(
 def list_messages(
     conversation_id: int,
     service: ConversationServiceDep,
-    user_id: Annotated[int, Query(gt=0)],
+    user: CurrentUser,
     limit: Annotated[int, Query(ge=1, le=100)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> MessageListResponse:
     try:
         messages = service.list_messages(
-            user_id=user_id,
+            user_id=user.id,
             conversation_id=conversation_id,
             limit=limit,
             offset=offset,
@@ -126,11 +120,11 @@ def list_messages(
 def delete_conversation(
     conversation_id: int,
     service: ConversationServiceDep,
-    user_id: Annotated[int, Query(gt=0)],
+    user: CurrentUser,
 ) -> Response:
     try:
         service.delete_conversation(
-            user_id=user_id,
+            user_id=user.id,
             conversation_id=conversation_id,
         )
     except ConversationNotFoundError as exc:

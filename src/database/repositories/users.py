@@ -23,3 +23,13 @@ class UserRepository:
             return None
         statement = select(User).where(User.email == normalized_email)
         return self._db.scalar(statement)
+
+    def create(self, *, email: str, password_hash: str) -> User:
+        user = User(
+            email=email.strip().lower(),
+            password_hash=password_hash,
+        )
+        self._db.add(user)
+        self._db.flush()
+        self._db.refresh(user)
+        return user

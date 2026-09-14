@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from functools import partial
@@ -20,6 +21,9 @@ from .observability import setup_phoenix_tracer
 from .pipeline import RAGPipeline
 
 
+logger = logging.getLogger("persian_cultural_rag.api")
+
+
 def _load_project_env() -> Path | None:
     """Load the first .env found while walking up from this file."""
     script_dir = Path(__file__).resolve().parent
@@ -35,10 +39,24 @@ def _load_project_env() -> Path | None:
 
 
 def _required_env(name: str) -> str:
-    value = os.getenv(name, "").strip()
+    value = _clean_env_value(os.getenv(name, ""))
     if not value:
         raise RuntimeError(f"Required environment variable is missing: {name}")
     return value
+
+
+def _clean_env_value(raw: str) -> str:
+    """Strip whitespace and trailing inline `#` comments from .env values.
+
+    A line such as ``OPENROUTER_MODEL=openrouter/free # comment`` would
+    otherwise produce the invalid model slug
+    ``"openrouter/free # comment"`` because python-dotenv keeps the raw
+    remainder of the line.
+    """
+    cleaned = raw.strip()
+    if " #" in cleaned:
+        cleaned = cleaned.split(" #", 1)[0].rstrip()
+    return cleaned
 
 
 def _positive_int_env(name: str, default: int) -> int:
@@ -105,14 +123,18 @@ class RAGSettings:
         settings = cls(
             jina_api_key=_required_env("JINA_API_KEY"),
             openrouter_api_key=_required_env("OPENROUTER_API_KEY"),
-            openrouter_base_url=os.getenv(
-                "OPENROUTER_BASE_URL",
-                "https://openrouter.ai/api/v1",
-            ).strip(),
-            openrouter_model=os.getenv(
-                "OPENROUTER_MODEL",
-                "openrouter/free",
-            ).strip(),
+            openrouter_base_url=_clean_env_value(
+                os.getenv(
+                    "OPENROUTER_BASE_URL",
+                    "https://openrouter.ai/api/v1",
+                )
+            ),
+            openrouter_model=_clean_env_value(
+                os.getenv(
+                    "OPENROUTER_MODEL",
+                    "openrouter/free",
+                )
+            ),
             qdrant_url=os.getenv(
                 "QDRANT_URL",
                 "http://localhost:6333",
@@ -168,6 +190,14 @@ def build_rag_runtime(
     # spans always work; optional LangChain auto-instrumentation is controlled
     # by PHOENIX_AUTO_INSTRUMENT_LANGCHAIN.
     tracer = setup_phoenix_tracer()
+    logger.info(
+        "phoenix_tracer_initialized tracer=%s endpoint=%s project=%s",
+        type(tracer).__name__,
+        os.getenv("PHOENIX_COLLECTOR_ENDPOINT", "").strip() or "(unset)",
+        os.getenv(
+            "PHOENIX_PROJECT_NAME", "persian-cultural-rag-agent-v2"
+        ).strip(),
+    )
 
     sparse_retriever = BM25Retriever.load(
         index_dir=settings.bm25_index_dir,

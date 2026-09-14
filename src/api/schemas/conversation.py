@@ -8,8 +8,6 @@ from .common import StrictAPIModel
 
 
 class ConversationCreateRequest(StrictAPIModel):
-    # Temporary pre-auth field. Replace with current_user.id in auth phase.
-    user_id: int = Field(gt=0)
     title: str | None = Field(default=None, max_length=255)
 
 

@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from src.api.exception_handlers import register_exception_handlers
 from src.api.middleware import register_http_middleware
 from src.api.routes import health_router, query_router, retrieve_router
+from src.api.routes.auth import router as auth_router
 from src.api.routes.chat import router as chat_router
 from src.api.routes.conversations import router as conversations_router
 from src.api.runtime import ApplicationRuntimeProtocol
@@ -50,6 +51,7 @@ def create_app(
     application.include_router(health_router)
     application.include_router(query_router)
     application.include_router(retrieve_router)
+    application.include_router(auth_router)
     application.include_router(conversations_router)
     application.include_router(chat_router)
 

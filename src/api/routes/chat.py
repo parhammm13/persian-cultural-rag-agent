@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from src.api.dependencies import get_chat_service
+from src.api.dependencies import CurrentUser, get_chat_service
 from src.api.schemas.chat import ChatRequest, ChatResponse
 from src.services.chat_service import ChatService
 from src.services.conversation_service import ConversationNotFoundError
@@ -25,10 +25,11 @@ ChatServiceDep = Annotated[
 def chat(
     request: ChatRequest,
     service: ChatServiceDep,
+    user: CurrentUser,
 ) -> ChatResponse:
     try:
         result = service.chat(
-            user_id=request.user_id,
+            user_id=user.id,
             conversation_id=request.conversation_id,
             message=request.message,
         )
@@ -44,4 +45,7 @@ def chat(
         user_message=result.user_message,
         assistant_message=result.assistant_message,
         sources=sources,
+        route=result.route,
+        standalone_query=result.standalone_query,
+        used_fallback=result.used_fallback,
     )

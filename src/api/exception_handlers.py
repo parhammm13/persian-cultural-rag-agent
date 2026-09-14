@@ -40,8 +40,15 @@ def _error_response(
     )
 
 
-def register_exception_handlers(app: FastAPI) -> None:
-    """Register stable public error contracts without leaking internals."""
+def register_exception_handlers(
+    app: FastAPI,
+) -> None:
+    """
+    Register stable public error contracts.
+
+    Validation details and internal exceptions are written to application
+    logs for debugging, while public API responses avoid leaking internals.
+    """
 
     @app.exception_handler(RequestValidationError)
     async def request_validation_exception_handler(
@@ -49,14 +56,20 @@ def register_exception_handlers(app: FastAPI) -> None:
         exc: RequestValidationError,
     ) -> JSONResponse:
         request_id = get_request_id(request)
+        errors = exc.errors()
 
         logger.warning(
-            "request_validation_failed request_id=%s method=%s path=%s "
-            "error_count=%s",
+            "request_validation_failed "
+            "request_id=%s "
+            "method=%s "
+            "path=%s "
+            "error_count=%s "
+            "errors=%s",
             request_id,
             request.method,
             request.url.path,
-            len(exc.errors()),
+            len(errors),
+            errors,
         )
 
         return _error_response(
@@ -78,6 +91,20 @@ def register_exception_handlers(app: FastAPI) -> None:
         else:
             message = "HTTP request failed."
 
+        logger.warning(
+            "http_exception "
+            "request_id=%s "
+            "method=%s "
+            "path=%s "
+            "status_code=%s "
+            "detail=%s",
+            request_id,
+            request.method,
+            request.url.path,
+            exc.status_code,
+            exc.detail,
+        )
+
         return _error_response(
             status_code=exc.status_code,
             error="http_error",
@@ -92,8 +119,11 @@ def register_exception_handlers(app: FastAPI) -> None:
     ) -> JSONResponse:
         request_id = get_request_id(request)
 
-        logger.error(
-            "unhandled_exception request_id=%s method=%s path=%s "
+        logger.exception(
+            "unhandled_exception "
+            "request_id=%s "
+            "method=%s "
+            "path=%s "
             "exception_type=%s",
             request_id,
             request.method,
